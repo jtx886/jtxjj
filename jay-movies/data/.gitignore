@@ -1,0 +1,5 @@
+# SQLite database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
