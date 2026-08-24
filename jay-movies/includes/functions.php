@@ -1,38 +1,97 @@
 <?php
 require_once __DIR__ . '/db.php';
 
+/**
+ * 安全发送邮件：严格超时（默认连 5 秒 / 总 12 秒）
+ * 如果 SMTP 连不上或任何一步卡住，立即返回 false 而不是把页面挂死。
+ */
 function sendEmail($to, $subject, $body) {
-    $headers = "MIME-Version: 1.0\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    $headers .= "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\r\n";
-    
-    $socket = fsockopen('ssl://' . SMTP_HOST, SMTP_PORT, $errno, $errstr, 30);
-    if(!$socket) {
+    if (!function_exists('fsockopen')) return false;
+    $subject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+    $toEncoded = '=?UTF-8?B?' . base64_encode($to) . '?= <' . $to . '>';
+    $boundary = '=_JM_Alt_Boundary_' . md5(microtime(true) . mt_rand());
+    $htmlBody = chunk_split(base64_encode($body));
+    $headers  = "From: =?UTF-8?B?" . base64_encode(SMTP_FROM_NAME) . "?= <" . SMTP_FROM . ">\r\n";
+    $headers .= "To: $toEncoded\r\n";
+    $headers .= "Subject: $subject\r\n";
+    $headers .= "MIME-Version: 1.0\r\n";
+    $headers .= "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
+
+    $connectTimeout = defined('HTTP_CONNECT_TIMEOUT') ? HTTP_CONNECT_TIMEOUT : 5;
+    $totalTimeout   = 12; // 邮件最多 12 秒
+    $start = microtime(true);
+
+    $errno = 0; $errstr = '';
+    $socket = @fsockopen('ssl://' . SMTP_HOST, SMTP_PORT, $errno, $errstr, $connectTimeout);
+    if (!$socket) {
+        @file_put_contents(__DIR__ . '/../data/mail_error.log',
+            '[' . date('Y-m-d H:i:s') . "] SMTP connect fail: $errno $errstr (to $to)\n", FILE_APPEND);
         return false;
     }
-    
-    $response = fgets($socket, 515);
-    smtpSend($socket, "EHLO " . SMTP_HOST);
-    smtpSend($socket, "AUTH LOGIN");
-    smtpSend($socket, base64_encode(SMTP_USER));
-    smtpSend($socket, base64_encode(SMTP_PASS));
-    smtpSend($socket, "MAIL FROM: <" . SMTP_FROM . ">");
-    smtpSend($socket, "RCPT TO: <" . $to . ">");
-    smtpSend($socket, "DATA");
-    
-    $message = $headers . "\r\n" . $body . "\r\n.\r\n";
-    fwrite($socket, $message);
-    $response = fgets($socket, 515);
-    
-    smtpSend($socket, "QUIT");
-    fclose($socket);
-    
-    return true;
-}
+    stream_set_timeout($socket, $totalTimeout, 0);
+    stream_set_blocking($socket, true);
 
-function smtpSend($socket, $command) {
-    fwrite($socket, $command . "\r\n");
-    return fgets($socket, 515);
+    $smtpRead = function($socket) use (&$start, $totalTimeout) {
+        $resp = '';
+        while (!feof($socket)) {
+            if ((microtime(true) - $start) > $totalTimeout) return '';
+            $line = @fgets($socket, 515);
+            if ($line === false) break;
+            $resp .= $line;
+            if (isset($line[3]) && $line[3] === ' ') break;
+        }
+        return $resp;
+    };
+    $smtpSend = function($socket, $cmd, $expectedCodes) use (&$start, $totalTimeout, $smtpRead) {
+        if ((microtime(true) - $start) > $totalTimeout) return false;
+        @fwrite($socket, $cmd . "\r\n");
+        $resp = $smtpRead($socket);
+        if ($resp === '' || !preg_match('/^(\d{3})/', $resp, $m)) return false;
+        return in_array(intval($m[1]), (array)$expectedCodes, true);
+    };
+
+    try {
+        // 220 banner
+        $banner = $smtpRead($socket);
+        if (!preg_match('/^220\b/', $banner)) {
+            @file_put_contents(__DIR__ . '/../data/mail_error.log',
+                '[' . date('Y-m-d H:i:s') . "] SMTP bad banner: " . trim($banner) . " (to $to)\n", FILE_APPEND);
+            return false;
+        }
+        if (!$smtpSend($socket, 'EHLO ' . SMTP_HOST, [250])) return false;
+        if (!$smtpSend($socket, 'AUTH LOGIN',            [334])) return false;
+        if (!$smtpSend($socket, base64_encode(SMTP_USER), [334])) return false;
+        if (!$smtpSend($socket, base64_encode(SMTP_PASS), [235])) return false;
+        if (!$smtpSend($socket, 'MAIL FROM: <' . SMTP_FROM . '>', [250])) return false;
+        if (!$smtpSend($socket, 'RCPT TO: <' . $to . '>',       [250, 251])) return false;
+        if (!$smtpSend($socket, 'DATA',                         [354])) return false;
+
+        $msg  = $headers . "\r\n";
+        $msg .= "--$boundary\r\n";
+        $msg .= "Content-Type: text/plain; charset=UTF-8\r\n";
+        $msg .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $msg .= chunk_split(base64_encode("请使用 HTML 邮件客户端查看邮件内容")) . "\r\n";
+        $msg .= "--$boundary\r\n";
+        $msg .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $msg .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $msg .= $htmlBody . "\r\n";
+        $msg .= "--$boundary--\r\n";
+        $msg .= ".\r\n";
+        if (@fwrite($socket, $msg) === false) return false;
+        $dataResp = $smtpRead($socket);
+        if (!preg_match('/^250\b/', $dataResp)) return false;
+        @fwrite($socket, "QUIT\r\n");
+        @fclose($socket);
+        return true;
+    } catch (Throwable $e) {
+        @file_put_contents(__DIR__ . '/../data/mail_error.log',
+            '[' . date('Y-m-d H:i:s') . '] SMTP Throwable to ' . $to . ': ' . $e->getMessage() . "\n", FILE_APPEND);
+        return false;
+    }
+}
+// smtpSend 保留别名（防止老代码引用）
+if (!function_exists('smtpSend')) {
+    function smtpSend($socket, $command) { fwrite($socket, $command . "\r\n"); return fgets($socket, 515); }
 }
 
 function generateCode($length = 6) {
@@ -172,5 +231,23 @@ function csrfToken() {
 
 function verifyCsrf($token) {
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
+
+/**
+ * 颜色调整（主题色亮化/暗化）
+ * 全局统一放在 functions.php，避免各页面重复定义导致 Cannot redeclare
+ */
+if (!function_exists('adjustColor')) {
+    function adjustColor($hex, $percent) {
+        $hex = str_replace('#', '', $hex);
+        if(strlen($hex) != 6) $hex = '8b5cf6';
+        $r = hexdec(substr($hex, 0, 2));
+        $g = hexdec(substr($hex, 2, 2));
+        $b = hexdec(substr($hex, 4, 2));
+        $r = max(0, min(255, $r + ($percent * 2.55)));
+        $g = max(0, min(255, $g + ($percent * 2.55)));
+        $b = max(0, min(255, $b + ($percent * 2.55)));
+        return '#' . sprintf('%02x%02x%02x', $r, $g, $b);
+    }
 }
 ?>

@@ -42,15 +42,49 @@ $playSourceUrl = $srcUrl . '?ac=detail&wd=' . $searchKeyword;
 $videoUrl = '';
 
 // Try call yyzy api
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, $playSourceUrl);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 JayMovies');
-curl_setopt($ch, CURLOPT_ENCODING, 'gzip, deflate');
-$resp = curl_exec($ch);
-curl_close($ch);
+$resp = null;
+$yyzyConnectTimeout = defined('HTTP_CONNECT_TIMEOUT') ? HTTP_CONNECT_TIMEOUT : 3;
+$yyzyTotalTimeout   = defined('HTTP_TOTAL_TIMEOUT')   ? HTTP_TOTAL_TIMEOUT   : 6;
+if (function_exists('curl_init')) {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $playSourceUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $yyzyTotalTimeout);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $yyzyConnectTimeout);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_NOSIGNAL, 1);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 JayMovies');
+    curl_setopt($ch, CURLOPT_ENCODING, 'gzip, deflate');
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    if (!empty($_SERVER['HTTPS_PROXY']))       curl_setopt($ch, CURLOPT_PROXY, $_SERVER['HTTPS_PROXY']);
+    elseif (!empty($_SERVER['HTTP_PROXY']))    curl_setopt($ch, CURLOPT_PROXY, $_SERVER['HTTP_PROXY']);
+    $raw = curl_exec($ch);
+    curl_close($ch);
+    if (is_string($raw) && $raw !== '') $resp = $raw;
+}
+if ($resp === null && ini_get('allow_url_fopen')) {
+    $proxy = $_SERVER['HTTPS_PROXY'] ?? ($_SERVER['HTTP_PROXY'] ?? '');
+    $ctx_opts = [
+        'http' => [
+            'method'  => 'GET',
+            'header'  => "User-Agent: Mozilla/5.0 JayMovies\r\nAccept: */*\r\n",
+            'timeout' => $yyzyTotalTimeout,
+            'ignore_errors' => true,
+        ],
+        'ssl'  => ['verify_peer'=>false,'verify_peer_name'=>false],
+    ];
+    if ($proxy) {
+        $p = parse_url($proxy);
+        if (!empty($p['host'])) {
+            $ctx_opts['http']['proxy'] = 'tcp://' . $p['host'] . ':' . (isset($p['port']) ? $p['port'] : 80);
+            $ctx_opts['http']['request_fulluri'] = true;
+        }
+    }
+    $ctx = stream_context_create($ctx_opts);
+    $raw = @file_get_contents($playSourceUrl, false, $ctx);
+    if (is_string($raw) && $raw !== '') $resp = $raw;
+}
 
 $yyzyData = json_decode($resp, true);
 $playUrls = [];

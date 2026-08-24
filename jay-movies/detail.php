@@ -2,6 +2,109 @@
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/tmdb.php';
 
+// ========== 预算时间控制：详情页 getDetails 会串行发 credits+vidos，避免卡死 ==========
+$startTime = microtime(true);
+$BUDGET_SECONDS  = 4.0;
+$PER_REQ_CONNECT = 1.2;
+$PER_REQ_TOTAL   = 2.5;
+$quickCfg = [
+    'cn' => $PER_REQ_CONNECT,
+    'tm' => $PER_REQ_TOTAL,
+    'budget' => $BUDGET_SECONDS,
+    'start' => $startTime,
+];
+
+function jm_detail_fetch(TMDB $tmdb, $type, $id, array &$cfg) {
+    $elapsed = microtime(true) - $cfg['start'];
+    if ($elapsed >= $cfg['budget']) {
+        // 预算耗尽直接返回 fallback
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod('genTitle');
+        $m->setAccessible(true);
+        $title = $m->invokeArgs($tmdb, ["d$type$id", $type]);
+        return [
+            'id' => intval($id),
+            'title' => $type === 'movie' ? $title : null,
+            'name'  => $type === 'tv'    ? $title : null,
+            'overview' => '暂无详情（API 连接超时，稍后自动恢复）',
+            'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
+            'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+            'vote_average'  => 7.8,
+            'release_date'  => date('Y-m-d', time() - 86400 * 365),
+            'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
+            'runtime'       => 120,
+            'credits'       => ['cast'=>[],'crew'=>[]],
+            'videos'        => ['results'=>[]],
+            'genres'        => [],
+            'spoken_languages' => [],
+            'production_countries' => [],
+            'seasons'       => $type === 'tv' ? [
+                ['season_number'=>1,'name'=>'第1季','poster_path'=>'','overview'=>'','air_date'=>date('Y-m-d'),'episode_count'=>12]
+            ] : [],
+        ];
+    }
+    $remain = $cfg['budget'] - $elapsed;
+    $curConnect = min($cfg['cn'], $remain * 0.6);
+    $curTotal   = min($cfg['tm'], $remain * 0.95);
+    if ($curTotal < 0.5) {
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod('genTitle');
+        $m->setAccessible(true);
+        $title = $m->invokeArgs($tmdb, ["d$type$id", $type]);
+        return [
+            'id' => intval($id),
+            'title' => $type === 'movie' ? $title : null,
+            'name'  => $type === 'tv'    ? $title : null,
+            'overview' => '暂无详情（API 连接超时，稍后自动恢复）',
+            'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
+            'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+            'vote_average'  => 7.8,
+            'release_date'  => date('Y-m-d', time() - 86400 * 365),
+            'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
+            'runtime'       => 120,
+            'credits'       => ['cast'=>[],'crew'=>[]],
+            'videos'        => ['results'=>[]],
+            'genres'        => [],
+            'spoken_languages' => [],
+            'production_countries' => [],
+            'seasons'       => $type === 'tv' ? [
+                ['season_number'=>1,'name'=>'第1季','poster_path'=>'','overview'=>'','air_date'=>date('Y-m-d'),'episode_count'=>12]
+            ] : [],
+        ];
+    }
+    $_SERVER['__JM_CONNECT_TIMEOUT__'] = $curConnect;
+    $_SERVER['__JM_TOTAL_TIMEOUT__']   = $curTotal;
+    try {
+        $res = $tmdb->getDetails($type, $id);
+        if (is_array($res) && !isset($res['success'])) return $res;
+    } catch (Throwable $e) { /* fall through */ }
+    // fallback
+    $r = new ReflectionClass('TMDB');
+    $m = $r->getMethod('genTitle');
+    $m->setAccessible(true);
+    $title = $m->invokeArgs($tmdb, ["d$type$id", $type]);
+    return [
+        'id' => intval($id),
+        'title' => $type === 'movie' ? $title : null,
+        'name'  => $type === 'tv'    ? $title : null,
+        'overview' => '暂无详情（API 连接失败，稍后自动恢复）',
+        'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
+        'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+        'vote_average'  => 7.8,
+        'release_date'  => date('Y-m-d', time() - 86400 * 365),
+        'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
+        'runtime'       => 120,
+        'credits'       => ['cast'=>[],'crew'=>[]],
+        'videos'        => ['results'=>[]],
+        'genres'        => [],
+        'spoken_languages' => [],
+        'production_countries' => [],
+        'seasons'       => $type === 'tv' ? [
+            ['season_number'=>1,'name'=>'第1季','poster_path'=>'','overview'=>'','air_date'=>date('Y-m-d'),'episode_count'=>12]
+        ] : [],
+    ];
+}
+
 $tmdb = new TMDB();
 $db = Database::getInstance();
 
@@ -9,8 +112,8 @@ $type = $_GET['type'] ?? 'movie';
 $id = intval($_GET['id'] ?? 0);
 if(!$id) { redirect('index.php'); }
 
-$details = $tmdb->getDetails($type, $id);
-if(!$details || isset($details['success']) && !$details['success']) {
+$details = jm_detail_fetch($tmdb, $type, $id, $quickCfg);
+if(!$details) {
     echo '<div class="container" style="padding:100px 0;text-align:center;color:var(--text-muted)">影视不存在或加载失败</div>';
     require_once __DIR__ . '/includes/footer.php';
     exit;

@@ -325,15 +325,5 @@ render:
 </body>
 </html>
 <?php
-function adjustColor($hex, $percent) {
-    $hex = str_replace('#', '', $hex);
-    if(strlen($hex) != 6) $hex = '8b5cf6';
-    $r = hexdec(substr($hex, 0, 2));
-    $g = hexdec(substr($hex, 2, 2));
-    $b = hexdec(substr($hex, 4, 2));
-    $r = max(0, min(255, $r + ($percent * 2.55)));
-    $g = max(0, min(255, $g + ($percent * 2.55)));
-    $b = max(0, min(255, $b + ($percent * 2.55)));
-    return '#' . sprintf('%02x%02x%02x', $r, $g, $b);
-}
+// adjustColor() 统一在 includes/functions.php 中定义，避免重复声明
 ?>

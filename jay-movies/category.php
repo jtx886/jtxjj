@@ -2,6 +2,56 @@
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/tmdb.php';
 
+// ========== 预算时间控制：避免 TMDB 连不上导致卡死 ==========
+$startTime = microtime(true);
+$BUDGET_SECONDS  = 3.0;  // 分类页总预算 3 秒
+$PER_REQ_CONNECT = 1.2;
+$PER_REQ_TOTAL   = 2.0;
+
+$quickCfg = [
+    'cn' => $PER_REQ_CONNECT,
+    'tm' => $PER_REQ_TOTAL,
+    'budget' => $BUDGET_SECONDS,
+    'start' => $startTime,
+];
+
+function jm_cat_fetch(TMDB $tmdb, string $method, array $args, $fallbackSeed, $fallbackType, array &$cfg) {
+    $elapsed = microtime(true) - $cfg['start'];
+    if ($elapsed >= $cfg['budget']) {
+        // 使用反射调用 genFallbackList（私有方法）
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod('genFallbackList');
+        $m->setAccessible(true);
+        return ['results' => $m->invokeArgs($tmdb, [20, $fallbackType, $fallbackSeed])['results']];
+    }
+    $remain = $cfg['budget'] - $elapsed;
+    $curConnect = min($cfg['cn'], $remain * 0.6);
+    $curTotal   = min($cfg['tm'], $remain * 0.95);
+    if ($curTotal < 0.3) {
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod('genFallbackList');
+        $m->setAccessible(true);
+        return ['results' => $m->invokeArgs($tmdb, [20, $fallbackType, $fallbackSeed])['results']];
+    }
+    $_SERVER['__JM_CONNECT_TIMEOUT__'] = $curConnect;
+    $_SERVER['__JM_TOTAL_TIMEOUT__']   = $curTotal;
+    try {
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod($method);
+        $res = $m->invokeArgs($tmdb, $args);
+        if (is_array($res) && isset($res['results']) && is_array($res['results'])) return $res;
+        // fallback
+        $m2 = $r->getMethod('genFallbackList');
+        $m2->setAccessible(true);
+        return ['results' => $m2->invokeArgs($tmdb, [20, $fallbackType, $fallbackSeed])['results']];
+    } catch (Throwable $e) {
+        $r = new ReflectionClass('TMDB');
+        $m = $r->getMethod('genFallbackList');
+        $m->setAccessible(true);
+        return ['results' => $m->invokeArgs($tmdb, [20, $fallbackType, $fallbackSeed])['results']];
+    }
+}
+
 $tmdb = new TMDB();
 $type = $_GET['type'] ?? 'movie';
 $genreId = intval($_GET['genre'] ?? 0);
@@ -11,8 +61,6 @@ if($type == 'anime' || $type == 'variety') $mapType = 'tv';
 
 $catNames = ['movie'=>'电影','tv'=>'电视剧','anime'=>'动漫','variety'=>'综艺'];
 $catName = $catNames[$type] ?? '影视';
-
-$genres = $tmdb->getGenres($mapType);
 
 // Movie genre tabs
 $movieGenres = [
@@ -47,15 +95,15 @@ $tvGenres = [
 ];
 $genreTabs = ($mapType == 'movie') ? $movieGenres : $tvGenres;
 
-// Fetch data
+// Fetch data（预算时间控制，避免卡死）
 if($type == 'anime') {
-    $result = $tmdb->getByGenre('tv', 16, 1);
+    $result = jm_cat_fetch($tmdb, 'getByGenre', ['tv', 16, 1], "g16tv1", 'tv', $quickCfg);
 } elseif($type == 'variety') {
-    $result = $tmdb->getByGenre('tv', 10764, 1);
+    $result = jm_cat_fetch($tmdb, 'getByGenre', ['tv', 10764, 1], "g10764tv1", 'tv', $quickCfg);
 } elseif($genreId) {
-    $result = $tmdb->getByGenre($mapType, $genreId, 1);
+    $result = jm_cat_fetch($tmdb, 'getByGenre', [$mapType, $genreId, 1], "g{$genreId}{$mapType}1", $mapType, $quickCfg);
 } else {
-    $result = $tmdb->getPopular($mapType, 1);
+    $result = jm_cat_fetch($tmdb, 'getPopular', [$mapType, 1], "pop{$mapType}1", $mapType, $quickCfg);
 }
 $items = isset($result['results']) ? $result['results'] : [];
 
