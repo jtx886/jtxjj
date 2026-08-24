@@ -2,64 +2,16 @@
 require_once __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/tmdb.php';
 
-// ========== 预算时间控制：避免 TMDB 连不上导致卡死 ==========
-$startTime = microtime(true);
-$BUDGET_SECONDS  = 3.0;
-$PER_REQ_CONNECT = 1.2;
-$PER_REQ_TOTAL   = 2.0;
-$quickCfg = [
-    'cn' => $PER_REQ_CONNECT,
-    'tm' => $PER_REQ_TOTAL,
-    'budget' => $BUDGET_SECONDS,
-    'start' => $startTime,
-];
-
-function jm_search_fetch(TMDB $tmdb, $query, $page, array &$cfg) {
-    $elapsed = microtime(true) - $cfg['start'];
-    if ($elapsed >= $cfg['budget']) {
-        $r = new ReflectionClass('TMDB');
-        $m = $r->getMethod('genFallbackList');
-        $m->setAccessible(true);
-        return ['results' => $m->invokeArgs($tmdb, [12, 'movie', "q{$query}{$page}"])['results']];
-    }
-    $remain = $cfg['budget'] - $elapsed;
-    $curConnect = min($cfg['cn'], $remain * 0.6);
-    $curTotal   = min($cfg['tm'], $remain * 0.95);
-    if ($curTotal < 0.3) {
-        $r = new ReflectionClass('TMDB');
-        $m = $r->getMethod('genFallbackList');
-        $m->setAccessible(true);
-        return ['results' => $m->invokeArgs($tmdb, [12, 'movie', "q{$query}{$page}"])['results']];
-    }
-    $_SERVER['__JM_CONNECT_TIMEOUT__'] = $curConnect;
-    $_SERVER['__JM_TOTAL_TIMEOUT__']   = $curTotal;
-    try {
-        $res = $tmdb->search($query, $page);
-        if (is_array($res) && isset($res['results']) && is_array($res['results'])) return $res;
-        $r = new ReflectionClass('TMDB');
-        $m = $r->getMethod('genFallbackList');
-        $m->setAccessible(true);
-        return ['results' => $m->invokeArgs($tmdb, [12, 'movie', "q{$query}{$page}"])['results']];
-    } catch (Throwable $e) {
-        $r = new ReflectionClass('TMDB');
-        $m = $r->getMethod('genFallbackList');
-        $m->setAccessible(true);
-        return ['results' => $m->invokeArgs($tmdb, [12, 'movie', "q{$query}{$page}"])['results']];
-    }
-}
-
 $tmdb = new TMDB();
 $q = trim($_GET['q'] ?? '');
 $page = intval($_GET['page'] ?? 1);
 
 $results = [];
 if($q) {
-    $data = jm_search_fetch($tmdb, $q, $page, $quickCfg);
+    $data = $tmdb->search($q, $page);
     if(isset($data['results'])) {
         foreach($data['results'] as $r) {
-            $mt = $r['media_type'] ?? (isset($r['name']) ? 'tv' : 'movie');
-            if(in_array($mt, ['movie','tv'])) {
-                $r['media_type'] = $mt;
+            if(in_array($r['media_type'] ?? '', ['movie','tv'])) {
                 $results[] = $r;
             }
         }

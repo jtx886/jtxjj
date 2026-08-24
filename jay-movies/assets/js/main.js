@@ -177,7 +177,45 @@ function selectSeason(btn, seasonNum, tvId) {
     xhr.open('GET', 'api/season.php?tv_id=' + tvId + '&season=' + seasonNum, true);
     xhr.onload = function() {
         document.getElementById('episodes-loading').style.display = 'none';
-        document.getElementById('season-episodes').innerHTML = xhr.responseText;
+        var container = document.getElementById('season-episodes');
+        try {
+            var res = JSON.parse(xhr.responseText);
+            if (res.success && res.episodes) {
+                // 解析JSON，渲染剧集列表HTML
+                var html = '<div class="episodes-list">';
+                res.episodes.forEach(function(ep) {
+                    var onclick = "location.href='" + ep.play_url + "'";
+                    html += '<div class="episode-item" onclick="' + onclick + '">';
+                    html += '<div class="episode-num">' + ep.num + '</div>';
+                    if (ep.still) {
+                        html += '<div class="episode-thumb"><img src="' + ep.still + '" alt="" onerror="this.style.display=\'none\'"></div>';
+                    }
+                    html += '<div class="episode-info">';
+                    html += '<div class="episode-title">' + ep.name + '</div>';
+                    html += '<div class="episode-meta">';
+                    if (ep.air_date) { html += '<span>' + ep.air_date + '</span><span style="margin:0 8px">·</span>'; }
+                    if (parseFloat(ep.rating_raw) > 0) { html += '<span style="color:#fbbf24">★ ' + ep.rating + '</span><span style="margin:0 8px">·</span>'; }
+                    if (ep.runtime) { html += '<span>' + ep.runtime + ' 分钟</span>'; }
+                    html += '</div>';
+                    html += '<div class="episode-desc">' + ep.overview + '</div>';
+                    html += '</div>';
+                    html += '<div style="display:flex;align-items:center;align-self:center;flex-shrink:0;">';
+                    html += '<span class="btn btn-primary btn-sm"><span class="icon icon-play"></span>播放</span>';
+                    html += '</div>';
+                    html += '</div>';
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">' + (res.message || '加载失败') + '</div>';
+            }
+        } catch(e) {
+            container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">加载失败</div>';
+        }
+    };
+    xhr.onerror = function() {
+        document.getElementById('episodes-loading').style.display = 'none';
+        document.getElementById('season-episodes').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">网络错误，请重试</div>';
     };
     xhr.send();
 }

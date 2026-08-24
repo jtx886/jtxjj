@@ -1,9 +1,9 @@
 <?php
-// ========== 必须在输出任何 HTML 之前处理登录检查和重定向 ==========
+// 先处理登录检查和重定向，再输出HTML
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/tmdb.php';
 
-// Must login to watch — 未登录自动跳转登录页
+// Must login to watch — 在输出任何HTML之前检查
 requireLogin();
 
 $db = Database::getInstance();
@@ -29,71 +29,38 @@ $poster = $tmdb->getImageUrl($media['poster_path'] ?? '', 'w500');
 // Get play source
 $sources = getAllPlaySources();
 $curSource = getDefaultPlaySource();
-if(!$curSource) {
-    // 播放源为空时兜底
-    $curSource = ['id' => 0, 'name' => '默认源', 'url' => DEFAULT_PLAY_SOURCE, 'parser_url' => PLAYER_PARSER];
-}
 if($srcId) {
     foreach($sources as $s) { if($s['id'] == $srcId) { $curSource = $s; break; } }
 }
 $srcUrl = $curSource['url'];
 
 // Fetch source API to find the play URL using YYZY API
+// Build query: search by title
 $searchKeyword = urlencode($title);
 $playSourceUrl = $srcUrl . '?ac=detail&wd=' . $searchKeyword;
+// Also we construct parser URL with title to pass to ffzyplay
+// The parser accepts ANY url and we feed it yyzy search result as fallback
 $videoUrl = '';
 
 // Try call yyzy api
-$resp = null;
-$yyzyConnectTimeout = defined('HTTP_CONNECT_TIMEOUT') ? HTTP_CONNECT_TIMEOUT : 3;
-$yyzyTotalTimeout   = defined('HTTP_TOTAL_TIMEOUT')   ? HTTP_TOTAL_TIMEOUT   : 6;
-if (function_exists('curl_init')) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $playSourceUrl);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, $yyzyTotalTimeout);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $yyzyConnectTimeout);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    curl_setopt($ch, CURLOPT_NOSIGNAL, 1);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 JayMovies');
-    curl_setopt($ch, CURLOPT_ENCODING, 'gzip, deflate');
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    if (!empty($_SERVER['HTTPS_PROXY']))       curl_setopt($ch, CURLOPT_PROXY, $_SERVER['HTTPS_PROXY']);
-    elseif (!empty($_SERVER['HTTP_PROXY']))    curl_setopt($ch, CURLOPT_PROXY, $_SERVER['HTTP_PROXY']);
-    $raw = curl_exec($ch);
-    curl_close($ch);
-    if (is_string($raw) && $raw !== '') $resp = $raw;
-}
-if ($resp === null && ini_get('allow_url_fopen')) {
-    $proxy = $_SERVER['HTTPS_PROXY'] ?? ($_SERVER['HTTP_PROXY'] ?? '');
-    $ctx_opts = [
-        'http' => [
-            'method'  => 'GET',
-            'header'  => "User-Agent: Mozilla/5.0 JayMovies\r\nAccept: */*\r\n",
-            'timeout' => $yyzyTotalTimeout,
-            'ignore_errors' => true,
-        ],
-        'ssl'  => ['verify_peer'=>false,'verify_peer_name'=>false],
-    ];
-    if ($proxy) {
-        $p = parse_url($proxy);
-        if (!empty($p['host'])) {
-            $ctx_opts['http']['proxy'] = 'tcp://' . $p['host'] . ':' . (isset($p['port']) ? $p['port'] : 80);
-            $ctx_opts['http']['request_full_uri'] = true;
-        }
-    }
-    $ctx = stream_context_create($ctx_opts);
-    $raw = @file_get_contents($playSourceUrl, false, $ctx);
-    if (is_string($raw) && $raw !== '') $resp = $raw;
-}
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $playSourceUrl);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 JayMovies');
+curl_setopt($ch, CURLOPT_ENCODING, 'gzip, deflate');
+$resp = curl_exec($ch);
+curl_close($ch);
 
 $yyzyData = json_decode($resp, true);
 $playUrls = [];
 if($yyzyData && isset($yyzyData['list']) && is_array($yyzyData['list'])) {
+    // Match by title
     foreach($yyzyData['list'] as $item) {
         $itemName = $item['vod_name'] ?? '';
         if(mb_strpos($itemName, $title) !== false || mb_strpos($title, $itemName) !== false) {
+            // Found item, extract play lines
             $playFrom = $item['vod_play_from'] ?? '';
             $playUrl = $item['vod_play_url'] ?? '';
             $froms = explode('$$$', $playFrom);
@@ -131,7 +98,7 @@ if(count($playUrls) && isset($playUrls[0]['episodes'])) {
     }
 }
 
-// Build parser URL
+// Build parser URL: if we have direct source, use it; otherwise use yyzy wd search URL passed to parser
 $parserInput = $currentEpisodeUrl ?: ($srcUrl . '?wd=' . $searchKeyword . ($type == 'tv' ? ('&sid=' . $season . '&lid=' . $episode) : ''));
 $playerUrl = PLAYER_PARSER . urlencode($parserInput);
 
@@ -153,7 +120,7 @@ if($existHist) {
     ]);
 }
 
-// ========== 所有重定向/登录检查完毕，现在才输出 HTML ==========
+// 所有检查完毕，输出 HTML
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -162,9 +129,9 @@ require_once __DIR__ . '/includes/header.php';
         <h2 class="play-title">
             <?php echo sanitize($title); ?>
             <?php if($type == 'tv'): ?>
-            <span style="color:var(--text-muted);font-size:16px;font-weight:400;margin-left:10px;">
-                第<?php echo $season; ?>季 第<?php echo $episode; ?>集<?php echo $epName ? ' · ' . sanitize($epName) : ''; ?>
-            </span>
+                <span style="color:var(--text-muted);font-size:16px;font-weight:400;margin-left:10px;">
+                    第<?php echo $season; ?>季 第<?php echo $episode; ?>集<?php echo $epName ? ' · ' . sanitize($epName) : ''; ?>
+                </span>
             <?php endif; ?>
         </h2>
         <div style="display:flex;gap:10px;">
