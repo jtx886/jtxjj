@@ -15,6 +15,21 @@ $quickCfg = [
 ];
 
 function jm_detail_fetch(TMDB $tmdb, $type, $id, array &$cfg) {
+    // 真实 TMDB 海报路径池（TMDB 图片 CDN 独立于 API，图片通常仍可加载）
+    static $realPosters = [
+        '/ybki0UWO3OPhaM6MSniuKC7sy1R.jpg','/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg',
+        '/RYMX2wcKCBAr24UyPD7xwmjaTn.jpg','/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg',
+        '/gKY6q7SjCkAU6FqvqWybDYgUKIF.jpg','/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg',
+        '/6FfCtAuVAW8XJjZ7eWeLibRLWTw.jpg','/vQWk5YBFWF4bZaofAbv0tShwBvQ.jpg',
+        '/jSziioSwPVrOy9Yow3XhWIBDjq1.jpg','/qJ2tW6WMUDux911r6m7haRef0WH.jpg',
+        '/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg','/78lPtwv72eTNqFW9COBYI0dWDJa.jpg',
+        '/ulcAi4dKpAjHwYGS08vNyx9H6I9.jpg','/Cw4hIUIAmSYfK9QfaUW5igp9La.jpg',
+    ];
+    static $realBackdrops = [
+        '/cDtefl7KGnKrDziEUXetMnztvqr.jpg','/tlm8UkiQsitc8rSuIAscQDCnP8d.jpg',
+        '/yUiXA68FfQeA8cRBhd0Ao0jIRZt.jpg','/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',
+        '/66Kn4XWhkuPkJxOJyPEx4U2CUfN.jpg',
+    ];
     $elapsed = microtime(true) - $cfg['start'];
     if ($elapsed >= $cfg['budget']) {
         // 预算耗尽直接返回 fallback
@@ -27,8 +42,8 @@ function jm_detail_fetch(TMDB $tmdb, $type, $id, array &$cfg) {
             'title' => $type === 'movie' ? $title : null,
             'name'  => $type === 'tv'    ? $title : null,
             'overview' => '暂无详情（API 连接超时，稍后自动恢复）',
-            'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
-            'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+            'poster_path'   => $realPosters[$id % count($realPosters)],
+            'backdrop_path' => $realBackdrops[$id % count($realBackdrops)],
             'vote_average'  => 7.8,
             'release_date'  => date('Y-m-d', time() - 86400 * 365),
             'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
@@ -56,8 +71,8 @@ function jm_detail_fetch(TMDB $tmdb, $type, $id, array &$cfg) {
             'title' => $type === 'movie' ? $title : null,
             'name'  => $type === 'tv'    ? $title : null,
             'overview' => '暂无详情（API 连接超时，稍后自动恢复）',
-            'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
-            'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+            'poster_path'   => $realPosters[$id % count($realPosters)],
+            'backdrop_path' => $realBackdrops[$id % count($realBackdrops)],
             'vote_average'  => 7.8,
             'release_date'  => date('Y-m-d', time() - 86400 * 365),
             'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
@@ -88,8 +103,8 @@ function jm_detail_fetch(TMDB $tmdb, $type, $id, array &$cfg) {
         'title' => $type === 'movie' ? $title : null,
         'name'  => $type === 'tv'    ? $title : null,
         'overview' => '暂无详情（API 连接失败，稍后自动恢复）',
-        'poster_path'   => '/fallback-poster-' . (1 + ($id % 5)) . '.jpg',
-        'backdrop_path' => '/fallback-backdrop-' . (1 + ($id % 3)) . '.jpg',
+        'poster_path'   => $realPosters[$id % count($realPosters)],
+        'backdrop_path' => $realBackdrops[$id % count($realBackdrops)],
         'vote_average'  => 7.8,
         'release_date'  => date('Y-m-d', time() - 86400 * 365),
         'first_air_date'=> date('Y-m-d', time() - 86400 * 365),

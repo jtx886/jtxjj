@@ -201,20 +201,47 @@ class TMDB {
     }
 
     // ================= 兜底假数据（TMDB 完全连不上时用） =================
+    // 使用真实的 TMDB 图片 CDN 路径，这样即使 API 连不上，图片仍然可以正常显示
+    // TMDB 图片服务器(image.tmdb.org)和 API 服务器是独立服务，图片通常仍可访问
+
     private function genTitle($seed, $type) {
         $moviePool = ['星际战士','深海迷航','雾都迷案','永恒之刃','风之国度','龙城传说','山海奇谭','银河守卫','末世英雄','暗夜追凶','山河岁月','江湖故人','长安十二时辰','流浪地球3','封神2'];
         $tvPool    = ['夜空中最亮的星','山河锦绣','繁花似锦','暗河传','剑王朝第二季','重生之都市修仙','大宋少年志','长相思2','庆余年3','狂飙2','我的阿勒泰','尘封十三载'];
         $pool = $type === 'tv' ? $tvPool : $moviePool;
         return $pool[abs(crc32($seed)) % count($pool)];
     }
-    private function genPoster($seed) {
-        $n = 1 + abs(crc32($seed)) % 5;
-        return "/assets/img/poster$n.jpg";
-    }
+
     private function genFallbackList($count, $type = 'movie', $seed = '') {
+        // 真实 TMDB 海报路径池（从 TMDB 网站提取的真实路径）
+        // TMDB 图片 CDN (image.tmdb.org) 独立于 API，即使 API 连不上图片仍可加载
+        $posterPool = [
+            '/ybki0UWO3OPhaM6MSniuKC7sy1R.jpg',  // 虎胆威龙2
+            '/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg',  // 肖申克的救赎
+            '/RYMX2wcKCBAr24UyPD7xwmjaTn.jpg',   // 复仇者联盟
+            '/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg',   // 复仇者联盟3
+            '/gKY6q7SjCkAU6FqvqWybDYgUKIF.jpg',   // 阿凡达
+            '/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg',   // 黑客帝国
+            '/6FfCtAuVAW8XJjZ7eWeLibRLWTw.jpg',   // 星球大战
+            '/vQWk5YBFWF4bZaofAbv0tShwBvQ.jpg',   // 低俗小说
+            '/jSziioSwPVrOy9Yow3XhWIBDjq1.jpg',   // 搏击俱乐部
+            '/qJ2tW6WMUDux911r6m7haRef0WH.jpg',   // 蝙蝠侠：黑暗骑士
+            '/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg',   // 盗梦空间
+            '/78lPtwv72eTNqFW9COBYI0dWDJa.jpg',   // 钢铁侠
+            '/ulcAi4dKpAjHwYGS08vNyx9H6I9.jpg',   // 疯狂的麦克斯
+            '/Cw4hIUIAmSYfK9QfaUW5igp9La.jpg',    // 阿甘正传
+        ];
+        $backdropPool = [
+            '/cDtefl7KGnKrDziEUXetMnztvqr.jpg',  // 虎胆威龙2
+            '/tlm8UkiQsitc8rSuIAscQDCnP8d.jpg',  // 黑客帝国
+            '/yUiXA68FfQeA8cRBhd0Ao0jIRZt.jpg',  // 星球大战
+            '/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',   // 盗梦空间
+            '/66Kn4XWhkuPkJxOJyPEx4U2CUfN.jpg',   // 阿甘正传
+        ];
         $res = [];
         for ($i = 1; $i <= $count; $i++) {
             $id = 10000 + abs(crc32($seed . $i)) % 90000;
+            $pi = abs(crc32($seed . $i)) % count($posterPool);
+            $bi = abs(crc32($seed . $i)) % count($backdropPool);
             $res[] = [
                 'id'            => $id,
                 'media_type'    => $type,
@@ -223,8 +250,8 @@ class TMDB {
                 'vote_average'  => 7 + (abs(crc32("$seed$i")) % 30) / 10,
                 'release_date'  => (2020 + ($i % 6)) . '-' . sprintf('%02d',1+($i%12)) . '-' . sprintf('%02d',1+($i%28)),
                 'first_air_date'=> (2019 + ($i % 6)) . '-' . sprintf('%02d',1+($i%12)) . '-' . sprintf('%02d',1+($i%28)),
-                'poster_path'   => '/fallback-poster-' . (1 + $i%5) . '.jpg',
-                'backdrop_path' => '/fallback-backdrop-' . (1 + $i%3) . '.jpg',
+                'poster_path'   => $posterPool[$pi],
+                'backdrop_path' => $backdropPool[$bi],
                 'overview'      => '这是一部精彩的' . ($type==='movie'?'电影':'剧集') . '，情节跌宕起伏，引人入胜。',
                 'genre_ids'     => [28, 12, 14],
                 'popularity'    => 500 - $i,
@@ -272,13 +299,28 @@ class TMDB {
         if (!is_array($result)) {
             if (!$this->fallbackEnabled) return null;
             $title = $this->genTitle("d$mediaType$id", $mediaType);
+            // 使用真实 TMDB 海报路径池
+            $realPosters = [
+                '/ybki0UWO3OPhaM6MSniuKC7sy1R.jpg','/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg',
+                '/RYMX2wcKCBAr24UyPD7xwmjaTn.jpg','/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg',
+                '/gKY6q7SjCkAU6FqvqWybDYgUKIF.jpg','/dXNAPwY7VrqMAo51EKhhCJfaGb5.jpg',
+                '/6FfCtAuVAW8XJjZ7eWeLibRLWTw.jpg','/vQWk5YBFWF4bZaofAbv0tShwBvQ.jpg',
+                '/jSziioSwPVrOy9Yow3XhWIBDjq1.jpg','/qJ2tW6WMUDux911r6m7haRef0WH.jpg',
+                '/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg','/78lPtwv72eTNqFW9COBYI0dWDJa.jpg',
+                '/ulcAi4dKpAjHwYGS08vNyx9H6I9.jpg','/Cw4hIUIAmSYfK9QfaUW5igp9La.jpg',
+            ];
+            $realBackdrops = [
+                '/cDtefl7KGnKrDziEUXetMnztvqr.jpg','/tlm8UkiQsitc8rSuIAscQDCnP8d.jpg',
+                '/yUiXA68FfQeA8cRBhd0Ao0jIRZt.jpg','/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',
+                '/66Kn4XWhkuPkJxOJyPEx4U2CUfN.jpg',
+            ];
             return [
                 'id' => intval($id),
                 'title' => $mediaType === 'movie' ? $title : null,
                 'name'  => $mediaType === 'tv'    ? $title : null,
                 'overview' => '暂无详情（TMDB 连接失败，稍后自动恢复）',
-                'poster_path'   => '/fallback-poster-' . (1+$id%5) . '.jpg',
-                'backdrop_path' => '/fallback-backdrop-' . (1+$id%3) . '.jpg',
+                'poster_path'   => $realPosters[$id % count($realPosters)],
+                'backdrop_path' => $realBackdrops[$id % count($realBackdrops)],
                 'vote_average'  => 7.8,
                 'release_date'  => date('Y-m-d', time() - 86400 * 365),
                 'first_air_date'=> date('Y-m-d', time() - 86400 * 365),
@@ -388,9 +430,11 @@ class TMDB {
 
     public function getImageUrl($path, $size = 'w500') {
         if(!$path) return '';
-        // 如果是内置 fallback 图片（/fallback- 开头）直接返回
+        // 如果是旧版 fallback 图片路径（/fallback- 开头），返回空（让前端 onerror 处理）
         if (strpos($path, '/fallback-') === 0) return '';
-        if (strpos($path, '/assets/') === 0) return $path;
+        // 本地资源直接返回
+        if (strpos($path, '/assets/') === 0 || strpos($path, 'http') === 0) return $path;
+        // TMDB 图片 CDN 路径：https://image.tmdb.org/t/p/{size}{path}
         return TMDB_IMG_URL . $size . $path;
     }
 
