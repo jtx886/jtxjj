@@ -44,12 +44,29 @@ define('ADMIN_PASS', '101113');
 // 时区设置
 date_default_timezone_set('Asia/Shanghai');
 
-// 错误报告：绝对不允许把错误/警告直接输出到浏览器！
-error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED & ~E_STRICT);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
+// 错误报告：绝对不允许把错误/警告直接输出到浏览器！（兼容 PHP 8.4+ 移除的 E_STRICT 级别）
+$__errLevel = E_ALL;
+foreach (['E_STRICT','E_WARNING','E_NOTICE','E_DEPRECATED'] as $__c) {
+    if (defined($__c)) $__errLevel = $__errLevel & ~constant($__c);
+}
+error_reporting($__errLevel);
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+ini_set('log_errors', '1');
 if (!is_dir(__DIR__ . '/../data')) @mkdir(__DIR__ . '/../data', 0777, true);
 ini_set('error_log', __DIR__ . '/../data/php_error.log');
 
-session_start();
+// 外部请求全局超时控制（用于 TMDB API / YYZY / 播放源），防止卡死
+define('HTTP_CONNECT_TIMEOUT', 3);  // 连接超时（秒），卡住最多等 3 秒就判定失败
+define('HTTP_TOTAL_TIMEOUT', 5);    // 总超时（秒），TMDB/任何外部请求总耗时不超过 5 秒
+define('HTTP_FALLBACK_ON_FAIL', true); // 失败时显示内置假数据兜底，避免白屏
+
+// 会话安全性
+@ini_set('session.cookie_httponly', '1');
+@ini_set('session.use_only_cookies', '1');
+@ini_set('session.cookie_samesite', 'Lax');
+if (!defined('PHP_SESSION_ACTIVE')) define('PHP_SESSION_ACTIVE', 2);
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 ?>
