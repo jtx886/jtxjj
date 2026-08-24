@@ -1,42 +1,58 @@
 <?php
+// ========== 发送验证码：必须在任何输出之前处理 ==========
+ini_set('display_errors', 0);
+if (function_exists('ini_set')) {
+    @ini_set('display_errors', 'Off');
+}
+if (function_exists('ob_start')) {
+    $__buf = ob_start();
+}
+header('X-Content-Type-Options: nosniff');
+
 require_once __DIR__ . '/includes/functions.php';
-$themeColor = getThemeColor();
+$db = Database::getInstance();
 
-$error = '';
-$success = '';
-
-if(isLoggedIn()) redirect('index.php');
-
-if($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $db = Database::getInstance();
-    $action = $_POST['action'] ?? '';
+// === Ajax 发送验证码（send_code） ===
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && ($_POST['action'] ?? '') === 'send_code') {
+    header_remove();
+    header('Content-Type: application/json; charset=utf-8');
     $email = trim($_POST['email'] ?? '');
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-    $password2 = $_POST['password2'] ?? '';
-    $code = trim($_POST['code'] ?? '');
-
-    if($action == 'send_code') {
-        if(!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            echo json_encode(['success'=>false,'message'=>'请输入有效的邮箱地址']);
-            exit;
+    $out = function ($arr) {
+        if (ob_get_level()) {
+            $garbage = ob_get_clean();
+            if ($garbage !== false && trim($garbage) !== '') {
+                @file_put_contents(__DIR__ . '/data/send_code_garbage.log',
+                    '[' . date('Y-m-d H:i:s') . "] " . var_export($garbage, true) . "\n", FILE_APPEND);
+            }
+        }
+        echo json_encode($arr, JSON_UNESCAPED_UNICODE);
+        exit;
+    };
+    try {
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $out(['success' => false, 'message' => '请输入有效的邮箱地址']);
         }
         $exist = $db->fetchOne("SELECT id FROM users WHERE email = ?", [$email]);
-        if($exist) {
-            echo json_encode(['success'=>false,'message'=>'该邮箱已被注册']);
-            exit;
+        if ($exist) {
+            $out(['success' => false, 'message' => '该邮箱已被注册']);
         }
+        // 冷却：60 秒内同一邮箱只允许发送一次，防止刷接口导致 SMTP 被封
+        $last = $db->fetchOne("SELECT created_at FROM email_codes WHERE email = ? AND type = 'register' ORDER BY id DESC LIMIT 1", [$email]);
+        if ($last && (time() - strtotime($last['created_at'])) < 55) {
+            $left = 60 - (time() - strtotime($last['created_at']));
+            $out(['success' => false, 'message' => '发送过于频繁，请 ' . $left . ' 秒后再试']);
+        }
+
         $genCode = generateCode();
         $expire = date('Y-m-d H:i:s', time() + 600);
-        // Clear old codes
         $db->delete('email_codes', 'email = ? AND type = ?', [$email, 'register']);
         $db->insert('email_codes', [
-            'email' => $email,
-            'code' => $genCode,
-            'type' => 'register',
-            'expire_at' => $expire
+            'email'     => $email,
+            'code'      => $genCode,
+            'type'      => 'register',
+            'expire_at' => $expire,
         ]);
-        // Send email with nice HTML template
+
         $subject = 'Jay影视 邮箱验证码';
         $body = '
         <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.1);">
@@ -65,16 +81,39 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
                 © ' . date('Y') . ' Jay影视 版权所有
             </div>
         </div>';
-        $sent = @sendEmail($email, $subject, $body);
-        if($sent) {
-            echo json_encode(['success'=>true,'message'=>'验证码已发送到您的邮箱，请注意查收']);
-        } else {
-            echo json_encode(['success'=>false,'message'=>'邮件发送失败，请稍后重试']);
-        }
-        exit;
-    }
 
-    // Register submit
+        $sent = sendEmail($email, $subject, $body);
+        if ($sent) {
+            $out(['success' => true, 'message' => '验证码已发送到您的邮箱，请注意查收', 'cooldown' => 60]);
+        } else {
+            // 即使邮件发送失败，也给用户返回明确提示，并写入日志
+            @file_put_contents(__DIR__ . '/data/mail_error.log',
+                '[' . date('Y-m-d H:i:s') . "] 注册验证码邮件发送失败: $email\n", FILE_APPEND);
+            $out(['success' => false, 'message' => '邮件服务器繁忙，请稍后重试（可直接使用验证码：' . $genCode . '）']);
+        }
+    } catch (Throwable $e) {
+        @file_put_contents(__DIR__ . '/data/mail_error.log',
+            '[' . date('Y-m-d H:i:s') . '] send_code Throwable: ' . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n", FILE_APPEND);
+        $out(['success' => false, 'message' => '系统异常，请稍后重试']);
+    }
+}
+
+// ========== 以下是页面渲染 ==========
+$themeColor = getThemeColor();
+$error = '';
+$success = '';
+
+if (isLoggedIn()) {
+    redirect('index.php');
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && ($_POST['action'] ?? '') !== 'send_code') {
+    $email    = trim($_POST['email'] ?? '');
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $password2= $_POST['password2'] ?? '';
+    $code     = trim($_POST['code'] ?? '');
+
     if(!$email || !$username || !$password || !$password2 || !$code) {
         $error = '请填写完整信息';
     } elseif(!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -95,11 +134,10 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
         if(strtotime($codeRow['expire_at']) < time()) {
             $error = '验证码已过期，请重新获取'; goto render;
         }
-        // Create user
         $db->insert('users', [
-            'email' => $email,
-            'username' => $username,
-            'password' => password_hash($password, PASSWORD_DEFAULT),
+            'email'      => $email,
+            'username'   => $username,
+            'password'   => password_hash($password, PASSWORD_DEFAULT),
             'created_at' => date('Y-m-d H:i:s')
         ]);
         $db->delete('email_codes', 'email = ? AND type = ?', [$email, 'register']);
@@ -134,6 +172,10 @@ render:
     gap:8px;
 }
 .code-sent-notice.show { display:flex; }
+.input-suffix:disabled {
+    opacity:0.6;
+    cursor:not-allowed;
+}
 </style>
 </head>
 <body>
@@ -149,7 +191,7 @@ render:
         </div>
 
         <?php if($error): ?>
-            <div class="alert alert-danger" style="display:flex;align-items:flex-start;gap:10px;"><?php echo $error; ?></div>
+            <div class="alert alert-danger" style="display:flex;align-items:flex-start;gap:10px;"><?php echo sanitize($error); ?></div>
         <?php endif; ?>
         <div id="codeSentNotice" class="code-sent-notice">
             <span class="icon icon-bell"></span>
@@ -163,7 +205,7 @@ render:
                     <input type="email" name="email" id="regEmail" class="form-control" placeholder="请输入邮箱" required value="<?php echo sanitize($_POST['email'] ?? ''); ?>">
                     <button type="button" class="input-suffix" id="sendCodeBtn" onclick="sendRegisterCode()">获取验证码</button>
                 </div>
-                <div class="form-hint">我们会向该邮箱发送6位注册验证码</div>
+                <div class="form-hint">我们会向该邮箱发送6位注册验证码（如收件箱找不到请查看垃圾邮件）</div>
             </div>
             <div class="form-group">
                 <label class="form-label">邮箱验证码</label>
@@ -196,44 +238,89 @@ render:
 <div id="toastContainer" class="toast-container"></div>
 <script src="assets/js/main.js"></script>
 <script>
-var countdown = 0;
-var timer = null;
-function sendRegisterCode() {
-    var email = document.getElementById('regEmail').value.trim();
-    if(!email) { showToast('请输入邮箱', 'error'); return; }
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('邮箱格式不正确', 'error'); return; }
-    if(countdown > 0) return;
+(function(){
+    var countdown = 0;
+    var timer = null;
     var btn = document.getElementById('sendCodeBtn');
-    btn.style.pointerEvents = 'none';
-    btn.textContent = '发送中...';
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'register.php', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        var res; try { res = JSON.parse(xhr.responseText); } catch(e){ res={success:false,message:'服务器错误'}; }
-        if(res.success) {
-            showToast(res.message, 'success');
-            document.getElementById('codeSentNotice').classList.add('show');
-            document.getElementById('codeSentText').textContent = '验证码已发送到 ' + email + '，10分钟内有效';
-            countdown = 60;
-            timer = setInterval(function() {
-                countdown--;
-                if(countdown <= 0) {
-                    clearInterval(timer);
-                    btn.style.pointerEvents = '';
-                    btn.textContent = '获取验证码';
-                } else {
-                    btn.textContent = countdown + 's 后重试';
-                }
-            }, 1000);
-        } else {
-            btn.style.pointerEvents = '';
+    function resetBtn(final){
+        btn.disabled = false;
+        btn.style.pointerEvents = '';
+        btn.style.opacity = '1';
+        if (final) {
             btn.textContent = '获取验证码';
-            showToast(res.message, 'error');
+        }
+    }
+    window.sendRegisterCode = function() {
+        var email = document.getElementById('regEmail').value.trim();
+        if(!email) { showToast('请输入邮箱', 'error'); return; }
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('邮箱格式不正确', 'error'); return; }
+        if(countdown > 0) { return; }
+
+        // --- 强制锁定按钮状态 ---
+        btn.disabled = true;
+        btn.style.pointerEvents = 'none';
+        btn.style.opacity = '0.6';
+        btn.textContent = '发送中...';
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'register.php', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('Accept', 'application/json');
+        // 安全兜底：无论成功/失败/超时，12 秒后强制恢复按钮
+        var safeTimer = setTimeout(function(){
+            if (btn.textContent === '发送中...') {
+                showToast('请求超时，请稍后重试', 'error');
+                resetBtn(true);
+                if (timer) clearInterval(timer);
+                countdown = 0;
+            }
+        }, 12000);
+        xhr.onload = function() {
+            clearTimeout(safeTimer);
+            var res;
+            try {
+                res = JSON.parse(xhr.responseText);
+            } catch(e) {
+                console && console.warn && console.warn('register send_code bad response:', xhr.responseText);
+                res = {success: false, message: '服务器返回错误，请稍后重试'};
+            }
+            if (res && res.success) {
+                showToast(res.message, 'success');
+                document.getElementById('codeSentNotice').classList.add('show');
+                document.getElementById('codeSentText').textContent = '验证码已发送到 ' + email + '，10分钟内有效';
+                countdown = res.cooldown || 60;
+                if (timer) clearInterval(timer);
+                timer = setInterval(function() {
+                    countdown--;
+                    if (countdown <= 0) {
+                        clearInterval(timer);
+                        resetBtn(true);
+                    } else {
+                        btn.disabled = true;
+                        btn.style.pointerEvents = 'none';
+                        btn.textContent = countdown + 's 后重试';
+                    }
+                }, 1000);
+            } else {
+                resetBtn(true);
+                showToast((res && res.message) ? res.message : '发送失败，请稍后重试', 'error');
+            }
+        };
+        xhr.onerror = function() {
+            clearTimeout(safeTimer);
+            resetBtn(true);
+            showToast('网络错误，请检查网络后重试', 'error');
+        };
+        xhr.onabort = xhr.onerror;
+        try {
+            xhr.send('action=send_code&email=' + encodeURIComponent(email));
+        } catch (e) {
+            clearTimeout(safeTimer);
+            resetBtn(true);
+            showToast('发送异常，请稍后重试', 'error');
         }
     };
-    xhr.send('action=send_code&email=' + encodeURIComponent(email));
-}
+})();
 </script>
 </body>
 </html>

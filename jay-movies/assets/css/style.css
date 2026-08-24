@@ -1897,6 +1897,81 @@ table.data-table tr:hover td { background: var(--bg-hover); }
     from { opacity: 0; transform: translateX(40px); }
     to { opacity: 1; transform: translateX(0); }
 }
+
+/* ========== Season meta card + loading spinner ========== */
+.season-meta-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 20px 0 24px;
+    overflow: hidden;
+    transition: all 0.3s;
+}
+.season-meta-card:hover {
+    border-color: rgba(139,92,246,0.4);
+    box-shadow: 0 8px 30px rgba(139,92,246,0.12);
+}
+.season-meta-inner {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+.season-meta-inner .season-poster {
+    width: 120px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.season-meta-inner .season-poster img {
+    width: 100%;
+    display: block;
+}
+.season-meta-body {
+    flex: 1;
+    min-width: 0;
+}
+.season-name {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+}
+.season-meta-line {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+.season-overview {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.8;
+    margin: 0;
+}
+@media (max-width: 640px) {
+    .season-meta-card { padding: 14px; }
+    .season-meta-inner { flex-direction: column; gap: 14px; }
+    .season-meta-inner .season-poster { width: 96px; }
+}
+
+.loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(139,92,246,0.25);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 .toast.success { border-color: rgba(16,185,129,0.4); }
 .toast.error { border-color: rgba(239,68,68,0.4); }
 .toast.info { border-color: rgba(59,130,246,0.4); }
