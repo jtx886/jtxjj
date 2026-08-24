@@ -139,7 +139,7 @@ $tab = $_GET['tab'] ?? 'announcements';
         <div class="data-card">
             <div class="data-card-header"><div class="data-card-title">📧 给所有用户发送通知邮件</div></div>
             <div class="data-card-body" style="padding:24px;max-width:800px;">
-                <form method="POST" onsubmit="return confirm('确定发送给所有注册用户吗？（共 '.$totalUsers.' 位）');">
+                <form method="POST" onsubmit="return confirm('确定发送给所有注册用户吗？（共 <?php echo $totalUsers; ?> 位）');">
                     <input type="hidden" name="action" value="send_email_all">
                     <div class="form-group">
                         <label class="form-label">收件人数</label>

@@ -40,22 +40,24 @@ if($old && $old['avatar']) {
     if(file_exists($oldPath) && strpos($oldPath, 'avatars/') !== false) @unlink($oldPath);
 }
 
-// Compress/save using GD
+// Compress/save using GD（如果没有 GD 扩展就跳过压缩，直接用原图）
 list($w, $h, $type) = $info;
-$dstW = 256; $dstH = 256;
-$dst = imagecreatetruecolor($dstW, $dstH);
-$src = null;
-if($type == 1) $src = imagecreatefromgif($savePath);
-elseif($type == 2) $src = imagecreatefromjpeg($savePath);
-else $src = imagecreatefrompng($savePath);
-if($src) {
-    imagealphablending($dst, false); imagesavealpha($dst, true);
-    if($type == 3) { imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127)); }
-    imagecopyresampled($dst, $src, 0, 0, 0, 0, $dstW, $dstH, $w, $h);
-    if($type == 1) imagegif($dst, $savePath);
-    elseif($type == 2) imagejpeg($dst, $savePath, 90);
-    else imagepng($dst, $savePath, 8);
-    imagedestroy($src); imagedestroy($dst);
+if (function_exists('imagecreatetruecolor')) {
+    $dstW = 256; $dstH = 256;
+    $dst = imagecreatetruecolor($dstW, $dstH);
+    $src = null;
+    if($type == 1) $src = imagecreatefromgif($savePath);
+    elseif($type == 2) $src = imagecreatefromjpeg($savePath);
+    elseif($type == 3) $src = imagecreatefrompng($savePath);
+    if($src) {
+        imagealphablending($dst, false); imagesavealpha($dst, true);
+        if($type == 3) { imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127)); }
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $dstW, $dstH, $w, $h);
+        if($type == 1) imagegif($dst, $savePath);
+        elseif($type == 2) imagejpeg($dst, $savePath, 90);
+        else imagepng($dst, $savePath, 8);
+        imagedestroy($src); imagedestroy($dst);
+    }
 }
 
 $url = SITE_URL . 'uploads/avatars/' . $fileName;

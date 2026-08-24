@@ -1,5 +1,6 @@
 <?php
-require_once __DIR__ . '/includes/header.php';
+// ========== 必须在输出 HTML 之前处理重定向 ==========
+require_once __DIR__ . '/includes/functions.php';
 
 $db = Database::getInstance();
 $submitError = '';
@@ -40,6 +41,9 @@ $adminUserIds = [];
 foreach($userRows as $u) {
     if($u['username'] == ADMIN_USER) $adminUserIds[$u['id']] = true;
 }
+
+// ========== 所有检查完毕，输出 HTML ==========
+require_once __DIR__ . '/includes/header.php';
 ?>
 
 <div class="container" style="padding-top:30px;">
@@ -211,7 +215,7 @@ foreach($userRows as $u) {
             <div class="reply-form" id="reply-form-<?php echo $fid; ?>">
                 <textarea id="reply-text-<?php echo $fid; ?>" placeholder="写下您的回复..."></textarea>
                 <div class="reply-form-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="toggleReplyForm(document.querySelector('.feedback-action[onclick*=\"toggleReplyForm(' + <?php echo $fid; ?> + ']'), <?php echo $fid; ?>)">取消</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('reply-form-<?php echo $fid; ?>').classList.remove('active')">取消</button>
                     <button class="btn btn-primary btn-sm" onclick="submitReply(<?php echo $fid; ?>)">发表回复</button>
                 </div>
             </div>

@@ -16,11 +16,12 @@ $newFav = $db->fetchAll("SELECT fav.*, u.username, u.avatar
     FROM favorites fav LEFT JOIN users u ON u.id=fav.user_id 
     ORDER BY fav.id DESC LIMIT 8");
 
-// Compute summary
-$todayUsers = $db->fetchOne("SELECT COUNT(*) as c FROM users WHERE DATE(created_at) = DATE('now')")['c'];
-$todayHist = $db->fetchOne("SELECT COUNT(*) as c FROM watch_history WHERE DATE(last_watch) = DATE('now')")['c'];
-$todayFav = $db->fetchOne("SELECT COUNT(*) as c FROM favorites WHERE DATE(created_at) = DATE('now')")['c'];
-$todayFb = $db->fetchOne("SELECT COUNT(*) as c FROM feedbacks WHERE DATE(created_at) = DATE('now')")['c'];
+// Compute summary — 兼容 MySQL(CURDATE) 和 SQLite(DATE('now'))
+$_todayFn = ($db->getDriver() === 'mysql') ? 'CURDATE()' : "DATE('now')";
+$todayUsers = $db->fetchOne("SELECT COUNT(*) as c FROM users WHERE DATE(created_at) = $_todayFn")['c'];
+$todayHist = $db->fetchOne("SELECT COUNT(*) as c FROM watch_history WHERE DATE(last_watch) = $_todayFn")['c'];
+$todayFav = $db->fetchOne("SELECT COUNT(*) as c FROM favorites WHERE DATE(created_at) = $_todayFn")['c'];
+$todayFb = $db->fetchOne("SELECT COUNT(*) as c FROM feedbacks WHERE DATE(created_at) = $_todayFn")['c'];
 ?>
 
 <div class="stats-grid">

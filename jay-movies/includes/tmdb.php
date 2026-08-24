@@ -17,29 +17,30 @@ class TMDB {
     //       后续 5 分钟内所有请求直接跳过 HTTP，立即返回 fallback（<1ms）。
     //       这样就不会出现"一个页面有 5 个请求 × 每个等 3 秒 = 页面卡 15 秒"的悲剧。
     const FAIL_SHORT_TTL = 300;   // 单次失败后 短路 5 分钟
-    const FAIL_FILE      = __DIR__ . '/../data/tmdb_down_until.txt';
+
+    // 短路标记文件路径（不用类常量+__DIR__拼接，兼容所有 PHP 版本）
+    private static function failFile() {
+        return __DIR__ . '/../data/tmdb_down_until.txt';
+    }
 
     /** 判断当前是否处于短路状态（TMDB 已知不可用，跳过 HTTP） */
     private function isCircuitOpen() {
-        static $cached = null;
-        if ($cached !== null) return $cached;
-        $f = self::FAIL_FILE;
+        $f = self::failFile();
         if (file_exists($f)) {
             $until = intval(trim(@file_get_contents($f)));
-            if ($until > time()) { $cached = true; return true; }
+            if ($until > time()) return true;
             @unlink($f);
         }
-        $cached = false;
         return false;
     }
     /** 写入短路标记：N 秒内不再尝试 HTTP */
     private function tripCircuit($ttl = self::FAIL_SHORT_TTL) {
-        $f = self::FAIL_FILE;
-        @file_put_contents($f, (string)(time() + $ttl));
+        @file_put_contents(self::failFile(), (string)(time() + $ttl));
     }
     /** 清除短路标记（恢复请求） */
     public static function resetCircuit() {
-        if (file_exists(self::FAIL_FILE)) @unlink(self::FAIL_FILE);
+        $f = self::failFile();
+        if (file_exists($f)) @unlink($f);
     }
 
     public function __construct() {

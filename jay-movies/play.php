@@ -1,8 +1,9 @@
 <?php
-require_once __DIR__ . '/includes/header.php';
+// ========== 必须在输出任何 HTML 之前处理登录检查和重定向 ==========
+require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/tmdb.php';
 
-// Must login to watch
+// Must login to watch — 未登录自动跳转登录页
 requireLogin();
 
 $db = Database::getInstance();
@@ -28,17 +29,18 @@ $poster = $tmdb->getImageUrl($media['poster_path'] ?? '', 'w500');
 // Get play source
 $sources = getAllPlaySources();
 $curSource = getDefaultPlaySource();
+if(!$curSource) {
+    // 播放源为空时兜底
+    $curSource = ['id' => 0, 'name' => '默认源', 'url' => DEFAULT_PLAY_SOURCE, 'parser_url' => PLAYER_PARSER];
+}
 if($srcId) {
     foreach($sources as $s) { if($s['id'] == $srcId) { $curSource = $s; break; } }
 }
 $srcUrl = $curSource['url'];
 
 // Fetch source API to find the play URL using YYZY API
-// Build query: search by title
 $searchKeyword = urlencode($title);
 $playSourceUrl = $srcUrl . '?ac=detail&wd=' . $searchKeyword;
-// Also we construct parser URL with title to pass to ffzyplay
-// The parser accepts ANY url and we feed it yyzy search result as fallback
 $videoUrl = '';
 
 // Try call yyzy api
@@ -78,7 +80,7 @@ if ($resp === null && ini_get('allow_url_fopen')) {
         $p = parse_url($proxy);
         if (!empty($p['host'])) {
             $ctx_opts['http']['proxy'] = 'tcp://' . $p['host'] . ':' . (isset($p['port']) ? $p['port'] : 80);
-            $ctx_opts['http']['request_fulluri'] = true;
+            $ctx_opts['http']['request_full_uri'] = true;
         }
     }
     $ctx = stream_context_create($ctx_opts);
@@ -89,11 +91,9 @@ if ($resp === null && ini_get('allow_url_fopen')) {
 $yyzyData = json_decode($resp, true);
 $playUrls = [];
 if($yyzyData && isset($yyzyData['list']) && is_array($yyzyData['list'])) {
-    // Match by title
     foreach($yyzyData['list'] as $item) {
         $itemName = $item['vod_name'] ?? '';
         if(mb_strpos($itemName, $title) !== false || mb_strpos($title, $itemName) !== false) {
-            // Found item, extract play lines
             $playFrom = $item['vod_play_from'] ?? '';
             $playUrl = $item['vod_play_url'] ?? '';
             $froms = explode('$$$', $playFrom);
@@ -131,7 +131,7 @@ if(count($playUrls) && isset($playUrls[0]['episodes'])) {
     }
 }
 
-// Build parser URL: if we have direct source, use it; otherwise use yyzy wd search URL passed to parser
+// Build parser URL
 $parserInput = $currentEpisodeUrl ?: ($srcUrl . '?wd=' . $searchKeyword . ($type == 'tv' ? ('&sid=' . $season . '&lid=' . $episode) : ''));
 $playerUrl = PLAYER_PARSER . urlencode($parserInput);
 
@@ -152,6 +152,9 @@ if($existHist) {
         'season' => $season, 'episode' => $episode
     ]);
 }
+
+// ========== 所有重定向/登录检查完毕，现在才输出 HTML ==========
+require_once __DIR__ . '/includes/header.php';
 ?>
 
 <div class="container" style="padding-top:30px;">
@@ -159,9 +162,9 @@ if($existHist) {
         <h2 class="play-title">
             <?php echo sanitize($title); ?>
             <?php if($type == 'tv'): ?>
-                <span style="color:var(--text-muted);font-size:16px;font-weight:400;margin-left:10px;">
-                    第<?php echo $season; ?>季 第<?php echo $episode; ?>集<?php echo $epName ? ' · ' . sanitize($epName) : ''; ?>
-                </span>
+            <span style="color:var(--text-muted);font-size:16px;font-weight:400;margin-left:10px;">
+                第<?php echo $season; ?>季 第<?php echo $episode; ?>集<?php echo $epName ? ' · ' . sanitize($epName) : ''; ?>
+            </span>
             <?php endif; ?>
         </h2>
         <div style="display:flex;gap:10px;">
@@ -212,18 +215,22 @@ if($existHist) {
 </div>
 
 <script>
-startWatchTimer(<?php echo $histId; ?>);
-// If user passed custom episode URL, override parser
-<?php if(!empty($_GET['_ep'])): ?>
-(function(){
-    var customUrl = <?php echo json_encode($_GET['_ep']); ?>;
-    var iframe = document.querySelector('.player-wrapper iframe');
-    if(iframe && customUrl) {
-        var base = <?php echo json_encode(PLAYER_PARSER); ?>;
-        iframe.src = base + encodeURIComponent(customUrl);
+// 延迟到页面加载完成后再启动计时器（main.js 在 footer.php 中加载）
+window.addEventListener('load', function() {
+    if (typeof startWatchTimer === 'function') {
+        startWatchTimer(<?php echo $histId; ?>);
     }
-})();
+<?php if(!empty($_GET['_ep'])): ?>
+    (function(){
+        var customUrl = <?php echo json_encode($_GET['_ep']); ?>;
+        var iframe = document.querySelector('.player-wrapper iframe');
+        if(iframe && customUrl) {
+            var base = <?php echo json_encode(PLAYER_PARSER); ?>;
+            iframe.src = base + encodeURIComponent(customUrl);
+        }
+    })();
 <?php endif; ?>
+});
 </script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

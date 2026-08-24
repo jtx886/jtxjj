@@ -1,6 +1,6 @@
 <?php
-require_once __DIR__ . '/includes/header.php';
-
+// ========== 必须在输出 HTML 之前检查登录 ==========
+require_once __DIR__ . '/includes/functions.php';
 requireLogin();
 
 $db = Database::getInstance();
@@ -28,6 +28,9 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_profile'])) {
         $user = currentUser();
     }
 }
+
+// ========== 所有检查完毕，输出 HTML ==========
+require_once __DIR__ . '/includes/header.php';
 ?>
 <div class="container" style="padding-top:30px;">
     <div class="profile-header">
