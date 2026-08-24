@@ -1,0 +1,7 @@
+# Uploaded user avatars
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+!.gitignore
